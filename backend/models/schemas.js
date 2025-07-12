@@ -1,77 +1,35 @@
--- Customers Table
-CREATE TABLE customers (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  full_name TEXT NOT NULL,
-  nrc_passport TEXT NOT NULL UNIQUE,
-  contact_number TEXT NOT NULL,
-  address TEXT NOT NULL,
-  package_id UUID REFERENCES packages(id),
-  installation_date DATE,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+const Joi = require('joi');
 
--- Packages Table
-CREATE TABLE packages (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  speed TEXT NOT NULL,
-  price NUMERIC(10,2) NOT NULL,
-  description TEXT,
-  is_active BOOLEAN DEFAULT TRUE
-);
+const customerSchema = Joi.object({
+  full_name: Joi.string().min(3).max(100).required(),
+  nrc_passport: Joi.string().pattern(/^[0-9]+\/[A-Za-z]+\([A-Za-z]\)[0-9]+$/).required(),
+  contact_number: Joi.string().pattern(/^09[0-9]{9}$/).required(),
+  address: Joi.string().min(10).max(500).required(),
+  package_id: Joi.string().uuid().required(),
+  installation_date: Joi.date().greater('now').required()
+});
 
--- Speed Tests Table
-CREATE TABLE speed_tests (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  customer_id UUID REFERENCES customers(id),
-  download_speed NUMERIC(10,2) NOT NULL,
-  upload_speed NUMERIC(10,2) NOT NULL,
-  test_date TIMESTAMPTZ DEFAULT NOW(),
-  server_location TEXT
-);
+const operatorSchema = Joi.object({
+  name: Joi.string().min(3).max(100).required(),
+  email: Joi.string().email().required(),
+  password: Joi.string().min(8).pattern(/^(?=.*[A-Za-z])(?=.*\d).{8,}$/).required()
+});
 
--- Payments Table
-CREATE TABLE payments (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  customer_id UUID REFERENCES customers(id),
-  amount NUMERIC(10,2) NOT NULL,
-  payment_date TIMESTAMPTZ DEFAULT NOW(),
-  payment_method TEXT NOT NULL,
-  transaction_id TEXT UNIQUE,
-  status TEXT DEFAULT 'pending'
-);
+const paymentSchema = Joi.object({
+  customer_id: Joi.string().uuid().required(),
+  amount: Joi.number().positive().precision(2).required(),
+  payment_method: Joi.string().valid('wave', 'kbz', 'aya', 'cash').required()
+});
 
--- Operators Table
-CREATE TABLE operators (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  email TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
-  status TEXT DEFAULT 'offline',
-  last_active TIMESTAMPTZ
-);
+const chatMessageSchema = Joi.object({
+  session_id: Joi.string().uuid().required(),
+  sender_type: Joi.string().valid('customer', 'operator').required(),
+  content: Joi.string().min(1).max(1000).required()
+});
 
--- Chat Sessions Table
-CREATE TABLE chat_sessions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  customer_id UUID REFERENCES customers(id),
-  operator_id UUID REFERENCES operators(id),
-  start_time TIMESTAMPTZ DEFAULT NOW(),
-  end_time TIMESTAMPTZ,
-  status TEXT DEFAULT 'pending'
-);
-
--- Messages Table
-CREATE TABLE messages (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id UUID REFERENCES chat_sessions(id),
-  sender_type TEXT NOT NULL, -- 'customer' or 'operator'
-  content TEXT NOT NULL,
-  timestamp TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Create indexes for performance
-CREATE INDEX idx_customer_contact ON customers(contact_number);
-CREATE INDEX idx_speed_test_customer ON speed_tests(customer_id);
-CREATE INDEX idx_payments_customer ON payments(customer_id);
+module.exports = {
+  customerSchema,
+  operatorSchema,
+  paymentSchema,
+  chatMessageSchema
+};
