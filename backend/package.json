@@ -3,32 +3,49 @@
   "version": "1.0.0",
   "description": "Myanmar Link ISP Viber Bot Backend",
   "main": "app.js",
+  "type": "module",
   "scripts": {
     "start": "node app.js",
     "dev": "nodemon app.js",
-    "test": "jest",
-    "migrate": "node scripts/migrate.js"
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest",
+    "migrate": "node scripts/migrate.js",
+    "lint": "eslint .",
+    "format": "prettier --write ."
   },
   "dependencies": {
     "@google/generative-ai": "^0.3.0",
-    "@supabase/supabase-js": "^2.21.0",
-    "bcrypt": "^5.1.0",
+    "@supabase/supabase-js": "^2.39.8",
+    "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
-    "dotenv": "^16.0.3",
+    "dotenv": "^16.4.1",
     "express": "^4.18.2",
-    "express-rate-limit": "^6.7.0",
-    "joi": "^17.9.2",
-    "jsonwebtoken": "^9.0.0",
+    "express-rate-limit": "^6.8.1",
+    "joi": "^17.12.0",
+    "jsonwebtoken": "^9.0.2",
+    "node-cache": "^5.1.2",
     "speedtest-net": "^2.2.0",
-    "viber-bot": "^1.0.19",
-    "winston": "^3.8.2"
+    "viber-bot-js": "^2.0.0",
+    "winston": "^3.11.0",
+    "winston-daily-rotate-file": "^4.7.1"
   },
   "devDependencies": {
-    "jest": "^29.5.0",
-    "nodemon": "^2.0.22",
-    "supertest": "^6.3.3"
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-node": "^11.1.0",
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.3",
+    "prettier": "^3.2.5",
+    "supertest": "^6.3.4"
   },
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "coveragePathIgnorePatterns": [
+      "/node_modules/",
+      "/tests/"
+    ]
   }
-  }
+}
