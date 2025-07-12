@@ -1,134 +1,154 @@
 const { supabase } = require('../config/supabase');
-const { viber } = require('../config/viber');
+const { sendMessage } = require('../config/viber');
 
-const registrationSteps = [
-  { prompt: "Please enter your full name:", field: "full_name" },
-  { prompt: "Please enter your NRC/Passport number:", field: "nrc_passport" },
-  { prompt: "Please enter your contact number:", field: "contact_number" },
-  { prompt: "Please enter your installation address:", field: "address" },
-  { 
-    prompt: async () => {
-      const { data: packages } = await supabase.from('packages').select('*').eq('is_active', true);
-      const packageList = packages.map(p => `${p.name} - ${p.speed} (${p.price} MMK)`).join('\n');
-      return `Available packages:\n${packageList}\n\nPlease enter the package name you want:`;
+const registrationFlow = {
+  steps: [
+    {
+      prompt: "Please enter your full name:",
+      field: "full_name",
+      validate: (input) => input.length >= 3
     },
-    field: "package_id",
-    validate: async (input) => {
-      const { data } = await supabase
-        .from('packages')
-        .select('id')
-        .eq('name', input)
-        .eq('is_active', true)
-        .single();
-      return data ? data.id : null;
+    {
+      prompt: "Please enter your NRC/Passport number (e.g., 12/ABC(N)123456):",
+      field: "nrc_passport",
+      validate: (input) => /^[0-9]+\/[A-Za-z]+\([A-Za-z]\)[0-9]+$/.test(input)
+    },
+    {
+      prompt: "Please enter your contact number (09XXXXXXXX):",
+      field: "contact_number",
+      validate: (input) => /^09[0-9]{9}$/.test(input)
+    },
+    {
+      prompt: "Please enter your installation address:",
+      field: "address",
+      validate: (input) => input.length >= 10
+    },
+    {
+      prompt: async () => {
+        const { data, error } = await supabase
+          .from('packages')
+          .select('id,name,speed,price')
+          .eq('is_active', true);
+        
+        if (error) throw error;
+        return `Available packages:\n${data.map(p => `- ${p.name} (${p.speed}, ${p.price} MMK)`).join('\n')}\n\nPlease type the package name you want:`;
+      },
+      field: "package_id",
+      validate: async (input) => {
+        const { data } = await supabase
+          .from('packages')
+          .select('id')
+          .eq('name', input)
+          .single();
+        return data?.id || false;
+      }
+    },
+    {
+      prompt: "Enter preferred installation date (DD-MM-YYYY):",
+      field: "installation_date",
+      validate: (input) => {
+        const date = new Date(input.split('-').reverse().join('-'));
+        return !isNaN(date.getTime()) && date > new Date();
+      }
     }
+  ],
+
+  async start(userId) {
+    await supabase
+      .from('user_sessions')
+      .upsert({
+        user_id: userId,
+        state: 'registration',
+        step: 0,
+        data: {}
+      });
+    
+    await this.sendStep(userId, 0);
   },
-  { 
-    prompt: "Please enter your preferred installation date (DD-MM-YYYY):",
-    field: "installation_date",
-    validate: (input) => {
-      const dateRegex = /^\d{2}-\d{2}-\d{4}$/;
-      if (!dateRegex.test(input)) return false;
-      const date = new Date(input.split('-').reverse().join('-'));
-      return !isNaN(date.getTime()) ? date.toISOString() : false;
-    }
-  }
-];
 
-async function startRegistration(userId) {
-  await supabase
-    .from('user_sessions')
-    .upsert({
-      user_id: userId,
-      state: 'registration',
-      step: 0,
-      data: {}
-    });
-  
-  await sendStepPrompt(userId, 0);
-}
+  async sendStep(userId, stepIndex) {
+    const step = this.steps[stepIndex];
+    const prompt = typeof step.prompt === 'function' ? await step.prompt() : step.prompt;
+    await sendMessage(userId, prompt);
+  },
 
-async function sendStepPrompt(userId, stepIndex) {
-  const step = registrationSteps[stepIndex];
-  const prompt = typeof step.prompt === 'function' ? await step.prompt() : step.prompt;
-  
-  await viber.sendMessage(userId, prompt);
-}
-
-async function handleRegistrationResponse(userId, input) {
-  const { data: session } = await supabase
-    .from('user_sessions')
-    .select('*')
-    .eq('user_id', userId)
-    .single();
-  
-  if (!session) return;
-  
-  const currentStep = registrationSteps[session.step];
-  let value = input;
-  
-  if (currentStep.validate) {
-    value = await currentStep.validate(input);
-    if (!value) {
-      await viber.sendMessage(userId, "Invalid input. Please try again:");
-      return;
-    }
-  }
-  
-  // Update session data
-  const updatedData = { ...session.data, [currentStep.field]: value };
-  const nextStep = session.step + 1;
-  
-  await supabase
-    .from('user_sessions')
-    .update({
-      data: updatedData,
-      step: nextStep
-    })
-    .eq('user_id', userId);
-  
-  if (nextStep < registrationSteps.length) {
-    await sendStepPrompt(userId, nextStep);
-  } else {
-    await completeRegistration(userId, updatedData);
-  }
-}
-
-async function completeRegistration(userId, data) {
-  try {
-    const { data: customer, error } = await supabase
-      .from('customers')
-      .insert({
-        full_name: data.full_name,
-        nrc_passport: data.nrc_passport,
-        contact_number: data.contact_number,
-        address: data.address,
-        package_id: data.package_id,
-        installation_date: data.installation_date
-      })
-      .select()
+  async handleResponse(userId, input) {
+    const { data: session } = await supabase
+      .from('user_sessions')
+      .select('*')
+      .eq('user_id', userId)
       .single();
     
-    if (error) throw error;
+    if (!session) return false;
+
+    const currentStep = this.steps[session.step];
+    let value = input;
+    
+    if (currentStep.validate) {
+      value = await currentStep.validate(input);
+      if (!value) {
+        await sendMessage(userId, "Invalid input. Please try again.");
+        return false;
+      }
+    }
+    
+    const updatedData = { ...session.data, [currentStep.field]: value };
+    const nextStep = session.step + 1;
     
     await supabase
       .from('user_sessions')
-      .delete()
+      .update({
+        data: updatedData,
+        step: nextStep
+      })
       .eq('user_id', userId);
     
-    await viber.sendMessage(userId, 
-      `Registration complete! Your customer ID is ${customer.id}. ` +
-      `We'll contact you soon about installation.`
-    );
-  } catch (err) {
-    console.error('Registration error:', err);
-    await viber.sendMessage(userId, 
-      "Registration failed. Please contact our support team."
-    );
-  }
-}
+    if (nextStep < this.steps.length) {
+      await this.sendStep(userId, nextStep);
+    } else {
+      await this.complete(userId, updatedData);
+    }
+    return true;
+  },
 
-module.exports = {
-  startRegistration,
-  handleRegistrationResponse
+  async complete(userId, data) {
+    try {
+      const { data: customer, error } = await supabase
+        .from('customers')
+        .insert({
+          full_name: data.full_name,
+          nrc_passport: data.nrc_passport,
+          contact_number: data.contact_number,
+          address: data.address,
+          package_id: data.package_id,
+          installation_date: new Date(data.installation_date.split('-').reverse().join('-'))
+        })
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      await supabase
+        .from('user_sessions')
+        .delete()
+        .eq('user_id', userId);
+      
+      await sendMessage(userId,
+        `✅ Registration complete!\n\n` +
+        `Customer ID: ${customer.id}\n` +
+        `Package: ${data.package_id}\n` +
+        `Installation Date: ${data.installation_date}\n\n` +
+        `We'll contact you for confirmation.`
+      );
+      return true;
+    } catch (err) {
+      console.error('Registration error:', err);
+      await sendMessage(userId, 
+        "❌ Registration failed. Please contact our support team."
+      );
+      return false;
+    }
+  }
 };
+
+module.exports = registrationFlow;
